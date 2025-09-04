@@ -1,0 +1,74 @@
+{
+  "name": "execute-scripter",
+  "version": "1.0.0",
+  "description": "一个美观实用的脚本执行器，支持多行命令执行和快捷方式保存",
+  "main": "public/electron.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
+    "electron-pack": "npm run build && cross-env ELECTRON_SKIP_BINARY_DOWNLOAD=1 electron-builder --publish never",
+    "electron-pack-offline": "npm run build && cross-env ELECTRON_SKIP_BINARY_DOWNLOAD=1 ELECTRON_CACHE=./electron-cache electron-builder --publish never",
+    "electron-package": "npm run build && electron-packager . execute-scripter --platform=win32 --arch=x64 --out=dist --overwrite --asar",
+    "preelectron-pack": "npm run build"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.14.19",
+    "@mui/material": "^5.14.20",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^10.0.0",
+    "electron": "file:./electron-29.1.0.tgz",
+    "electron-builder": "^24.6.4",
+    "electron-packager": "^17.1.2",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.weiki.execute-scripter",
+    "productName": "Execute Scripter",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "build/**/*",
+      "public/electron.js",
+      "public/preload.js",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "electronVersion": "29.1.0",
+    "electronDownload": {
+      "cache": "./electron-cache"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
