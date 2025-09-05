@@ -138,20 +138,69 @@ function App() {
       setOutput(prev => prev + `> ${command}\n`);
       
       try {
-        const result = await window.electronAPI.executeCommand(command, workingDir);
-        
-        // 检查是否是cd命令，更新工作目录
+        // 检查是否是cd命令，直接在前端处理
         if (command.toLowerCase().startsWith('cd ')) {
-          const newDir = command.substring(3).trim();
-          if (result.success) {
-            workingDir = newDir;
-            setCurrentWorkingDir(newDir);
+          const cdCommand = command.substring(3).trim();
+          let newDir = cdCommand;
+          
+          // 处理不同格式的cd命令
+          if (cdCommand.startsWith('/d ')) {
+            // Windows的 cd /d 格式
+            newDir = cdCommand.substring(3).trim();
           }
-        }
-        
-        if (!result.success) {
-          setOutput(prev => prev + `错误: ${result.error || result.stderr}\n`);
-          break;
+          
+          // 处理盘符切换（C:, D:, E:, F:, G:等）
+          if (/^[A-Za-z]:$/.test(newDir)) {
+            // 纯盘符格式，添加根目录
+            newDir = newDir + '\\';
+          }
+          
+          // 处理相对路径
+          if (!newDir.match(/^[A-Za-z]:/) && !newDir.startsWith('\\')) {
+            // 相对路径，基于当前工作目录
+            if (workingDir) {
+              newDir = workingDir.endsWith('\\') ? workingDir + newDir : workingDir + '\\' + newDir;
+            }
+          }
+          
+          // 标准化路径格式
+          newDir = newDir.replace(/\//g, '\\'); // 将正斜杠转换为反斜杠
+          if (newDir.endsWith('\\') && newDir.length > 3) {
+            newDir = newDir.slice(0, -1); // 移除末尾的反斜杠（除了根目录）
+          }
+          
+          // 验证目录是否存在
+          try {
+            let checkCommand;
+            if (newDir.match(/^[A-Za-z]:[\\/]?$/)) {
+              // 盘符根目录检查
+              checkCommand = `if exist "${newDir}" (echo exists) else (echo not_exists)`;
+            } else {
+              // 普通目录检查
+              checkCommand = `if exist "${newDir}" (echo exists) else (echo not_exists)`;
+            }
+            
+            const dirResult = await window.electronAPI.executeCommand(checkCommand, workingDir);
+            if (dirResult.success && dirResult.stdout.includes('exists')) {
+              workingDir = newDir;
+              setCurrentWorkingDir(newDir);
+              setOutput(prev => prev + `已切换到目录: ${newDir}\n`);
+            } else {
+              setOutput(prev => prev + `错误: 目录不存在或无法访问: ${newDir}\n`);
+              break;
+            }
+          } catch (error) {
+            setOutput(prev => prev + `目录验证失败: ${error.message}\n`);
+            break;
+          }
+        } else {
+          // 非cd命令，正常执行
+          const result = await window.electronAPI.executeCommand(command, workingDir);
+          
+          if (!result.success) {
+            setOutput(prev => prev + `错误: ${result.error || result.stderr}\n`);
+            break;
+          }
         }
       } catch (error) {
         setOutput(prev => prev + `执行错误: ${error.message}\n`);

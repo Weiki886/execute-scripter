@@ -100,6 +100,67 @@ app.on('activate', () => {
   }
 });
 
+// 获取完整的系统环境变量
+function getFullEnvironmentVariables() {
+  const env = { ...process.env };
+  
+  // 在Windows上，尝试获取完整的PATH环境变量
+  if (process.platform === 'win32') {
+    try {
+      // 使用reg命令获取系统和用户的PATH变量
+      const { execSync } = require('child_process');
+      
+      // 获取系统PATH
+      let systemPath = '';
+      try {
+        const systemPathCmd = 'reg query "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v PATH';
+        const systemResult = execSync(systemPathCmd, { encoding: 'utf8', windowsHide: true });
+        const systemMatch = systemResult.match(/PATH\s+REG_(?:EXPAND_)?SZ\s+(.+)/);
+        if (systemMatch) {
+          systemPath = systemMatch[1].trim();
+        }
+      } catch (e) {
+        console.warn('无法获取系统PATH:', e.message);
+      }
+      
+      // 获取用户PATH
+      let userPath = '';
+      try {
+        const userPathCmd = 'reg query "HKEY_CURRENT_USER\\Environment" /v PATH';
+        const userResult = execSync(userPathCmd, { encoding: 'utf8', windowsHide: true });
+        const userMatch = userResult.match(/PATH\s+REG_(?:EXPAND_)?SZ\s+(.+)/);
+        if (userMatch) {
+          userPath = userMatch[1].trim();
+        }
+      } catch (e) {
+        console.warn('无法获取用户PATH:', e.message);
+      }
+      
+      // 组合完整的PATH
+      const pathParts = [];
+      if (systemPath) pathParts.push(systemPath);
+      if (userPath) pathParts.push(userPath);
+      if (env.PATH) pathParts.push(env.PATH);
+      
+      if (pathParts.length > 0) {
+        env.PATH = pathParts.join(';');
+      }
+      
+      // 展开环境变量（如%SystemRoot%等）
+      if (env.PATH) {
+        env.PATH = env.PATH.replace(/%([^%]+)%/g, (match, varName) => {
+          return env[varName] || match;
+        });
+      }
+      
+    } catch (error) {
+      console.warn('获取环境变量时出错:', error.message);
+    }
+  }
+  
+  return env;
+}
+
 // IPC handlers for command execution
 ipcMain.handle('execute-command', async (event, command, workingDir) => {
   return new Promise((resolve) => {
@@ -120,9 +181,12 @@ ipcMain.handle('execute-command', async (event, command, workingDir) => {
       effectiveWorkingDir = process.cwd();
     }
     
+    // 获取完整的环境变量
+    const fullEnv = getFullEnvironmentVariables();
+    
     const execOptions = {
       cwd: effectiveWorkingDir,
-      env: { ...process.env },
+      env: fullEnv,
       maxBuffer: 1024 * 1024 * 10, // 10MB buffer
       encoding: 'utf8',
       timeout: 300000, // 5分钟超时
@@ -132,25 +196,39 @@ ipcMain.handle('execute-command', async (event, command, workingDir) => {
     
     // 在Windows上，确保使用正确的shell
     if (process.platform === 'win32') {
-      execOptions.shell = 'cmd.exe';
+      // 使用系统默认的cmd.exe，并确保使用完整路径
+      execOptions.shell = process.env.COMSPEC || 'cmd.exe';
     }
     
     // exec 会自动找到正确的 shell，无需手动指定路径
     const childProcess = exec(cleanCommand, execOptions, (error, stdout, stderr) => {
       if (error) {
-        // 更详细的错误信息
+        // 更详细的错误信息和诊断
         let errorMessage = error.message;
+        let diagnosticInfo = '';
+        
         if (error.code === 'ENOENT') {
           errorMessage = `命令未找到: ${cleanCommand}`;
+          // 提供诊断信息
+          const commandParts = cleanCommand.split(' ');
+          const executable = commandParts[0];
+          diagnosticInfo = `\n诊断信息:\n- 可执行文件: ${executable}\n- 当前工作目录: ${effectiveWorkingDir}\n- 建议: 检查 ${executable} 是否在 PATH 环境变量中，或使用完整路径`;
         } else if (error.code === 'EACCES') {
           errorMessage = `权限不足: ${cleanCommand}`;
+          diagnosticInfo = `\n诊断信息:\n- 请检查文件执行权限\n- 尝试以管理员身份运行应用程序`;
         } else if (error.signal) {
           errorMessage = `命令被信号终止 (${error.signal}): ${cleanCommand}`;
+        } else if (error.message.includes('is not recognized')) {
+          // Windows特有的错误处理
+          const commandParts = cleanCommand.split(' ');
+          const executable = commandParts[0];
+          errorMessage = `'${executable}' 不是内部或外部命令，也不是可运行的程序或批处理文件。`;
+          diagnosticInfo = `\n诊断信息:\n- 可执行文件: ${executable}\n- 当前工作目录: ${effectiveWorkingDir}\n- PATH变量长度: ${fullEnv.PATH ? fullEnv.PATH.length : 0} 字符\n- 建议解决方案:\n  1. 确认 ${executable} 已正确安装\n  2. 将 ${executable} 的安装路径添加到系统 PATH 环境变量\n  3. 使用完整路径执行命令\n  4. 重启应用程序以刷新环境变量`;
         }
         
         resolve({
           success: false,
-          error: errorMessage,
+          error: errorMessage + diagnosticInfo,
           code: error.code,
           stdout: stdout || '',
           stderr: stderr || ''
